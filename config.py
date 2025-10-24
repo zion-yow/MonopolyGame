@@ -1,0 +1,36 @@
+# -*- coding: utf-8 -*-
+"""游戏配置文件"""
+
+# 窗口设置
+WINDOW_WIDTH = 1000
+WINDOW_HEIGHT = 800
+FPS = 60
+
+# 游戏设置
+START_CASH = 5000          # 初始现金
+START_BONUS = 500          # 经过起点奖励
+TOTAL_TILES = 20           # 地块总数
+
+# 颜色定义 (R, G, B)
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (255, 100, 100)
+BLUE = (100, 150, 255)
+GREEN = (100, 255, 100)
+YELLOW = (255, 255, 100)
+GRAY = (180, 180, 180)
+LIGHT_BLUE = (150, 200, 255)
+LIGHT_RED = (255, 150, 150)
+
+# 地图设置
+BOARD_CENTER_X = 400
+BOARD_CENTER_Y = 400
+BOARD_RADIUS = 250
+TILE_SIZE = 50
+
+# UI设置
+INFO_PANEL_X = 700
+INFO_PANEL_Y = 50
+BUTTON_WIDTH = 150
+BUTTON_HEIGHT = 40
+
