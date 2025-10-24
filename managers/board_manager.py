@@ -2,6 +2,7 @@
 """地图管理器"""
 
 import math
+import random
 from models.tile import Tile, TileType
 from models.property import Property
 from config import *
@@ -17,6 +18,10 @@ class BoardManager:
         
     def _generate_board(self):
         """生成地图"""
+        # 定义地块类型及其权重
+        tile_type_options = [TileType.PROPERTY, TileType.CHANCE, TileType.TAX]
+        weights = [0.7, 0.2, 0.1]
+
         for i in range(self.total_tiles):
             # 计算地块位置（圆形排列）
             angle = (360 / self.total_tiles) * i
@@ -27,12 +32,9 @@ class BoardManager:
             # 确定地块类型
             if i == 0:
                 tile_type = TileType.START
-            elif i % 5 == 0:
-                tile_type = TileType.CHANCE
-            elif i % 7 == 0:
-                tile_type = TileType.TAX
             else:
-                tile_type = TileType.PROPERTY
+                # 根据权重随机选择地块类型
+                tile_type = random.choices(tile_type_options, weights, k=1)[0]
                 
             tile = Tile(i, tile_type, (x, y))
             

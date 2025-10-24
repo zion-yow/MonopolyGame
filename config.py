@@ -9,7 +9,7 @@ FPS = 60
 # 游戏设置
 START_CASH = 5000          # 初始现金
 START_BONUS = 500          # 经过起点奖励
-TOTAL_TILES = 20           # 地块总数
+TOTAL_TILES = 36           # 地块总数
 
 # 颜色定义 (R, G, B)
 WHITE = (255, 255, 255)
