@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """玩家类定义"""
 
+from config import INITIAL_INTEREST_RATE, INITIAL_TAX_RATE
+
 
 class Player:
     """玩家类"""
@@ -12,6 +14,8 @@ class Player:
         self.properties = []
         self.is_ai = is_ai
         self.color = color
+        self.interest_rate = INITIAL_INTEREST_RATE
+        self.tax_rate = INITIAL_TAX_RATE
         
     def get_total_wealth(self):
         """计算总财富"""

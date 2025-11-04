@@ -18,6 +18,9 @@ class Property:
         
     def transfer_ownership(self, new_owner, old_owner=None):
         """转移所有权"""
+        if old_owner is None:
+            old_owner = self.owner
+            
         if old_owner and self in old_owner.properties:
             old_owner.properties.remove(self)
             
@@ -25,4 +28,11 @@ class Property:
             new_owner.properties.append(self)
             
         self.owner = new_owner
+
+    def make_unowned(self):
+        """使地产变为无主"""
+        if self.owner:
+            if self in self.owner.properties:
+                self.owner.properties.remove(self)
+            self.owner = None
 

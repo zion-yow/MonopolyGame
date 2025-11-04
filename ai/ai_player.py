@@ -27,9 +27,9 @@ class AIPlayer:
     def choose_property_to_sell(player):
         """
         选择要出售的地产
-        策略：随机选择
+        策略：出售价值最低的地产
         """
         if not player.properties:
             return None
-        return random.choice(player.properties)
+        return min(player.properties, key=lambda prop: prop.price)
 

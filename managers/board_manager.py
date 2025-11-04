@@ -59,6 +59,13 @@ class BoardManager:
         """获取玩家在地块上的显示位置"""
         tile = self.tiles[tile_index]
         x, y = tile.position
-        offset = 15 if is_ai else -15
-        return (x + offset, y + offset)
+        # 移除偏移，使玩家居中
+
+        # ai向右偏移15
+        if is_ai:
+            x += 15
+        # 玩家向左偏移15
+        else:
+            x -= 15
+        return (x, y)
 

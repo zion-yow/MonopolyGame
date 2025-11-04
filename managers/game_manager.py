@@ -26,6 +26,14 @@ class GameManager:
         self.winner = None
         self.messages = ["点击'投掷骰子'开始游戏"]
         self.waiting_for_buy_decision = False
+        self.waiting_for_sell_decision = False
+        self.properties_to_sell = []
+        self.pending_payment_amount = 0
+        self.pending_payment_receiver = None
+        self.pending_payment_type = None
+        self.pending_followup_action = None
+        self.post_payment_action = None
+        self.cached_process_result = None
         self.current_property = None
         
     def add_message(self, new_message):
@@ -37,6 +45,75 @@ class GameManager:
     def get_current_player(self):
         """获取当前玩家"""
         return self.players[self.current_player_index]
+        
+    def _clamp(self, value, min_value, max_value):
+        return max(min_value, min(value, max_value))
+        
+    def _format_percentage(self, value):
+        return f"{value * 100:.2f}%"
+        
+    def apply_start_effects(self, player):
+        """结算经过起点时的利息与土地税"""
+        self.add_message(f"{player.name} 经过起点，结算利息与土地税")
+        wait_required = False
+        
+        # 发放现金利息
+        interest_gain = int(player.cash * player.interest_rate)
+        if interest_gain > 0:
+            player.add_cash(interest_gain)
+            self.add_message(
+                f"-> 获得利息 ${interest_gain} (利率 {self._format_percentage(player.interest_rate)})"
+            )
+        else:
+            self.add_message(
+                f"-> 当前利率 {self._format_percentage(player.interest_rate)}，未获得利息"
+            )
+        
+        # 征收土地税
+        total_property_value = sum(prop.price for prop in player.properties)
+        tax_due = int(total_property_value * player.tax_rate)
+        if tax_due > 0:
+            if player.can_afford(tax_due):
+                player.deduct_cash(tax_due)
+                self.add_message(
+                    f"-> 支付土地税 ${tax_due} (税率 {self._format_percentage(player.tax_rate)})"
+                )
+            else:
+                self.add_message(
+                    f"-> 应缴土地税 ${tax_due} (税率 {self._format_percentage(player.tax_rate)})，现金不足！"
+                )
+                result = self.enter_sell_mode(player, tax_due, None, payment_type="tax", followup="continue_tile")
+                if result == "wait":
+                    wait_required = True
+        else:
+            self.add_message(
+                f"-> 当前土地税率 {self._format_percentage(player.tax_rate)}，无需缴税"
+            )
+        
+        # 调整下一次的利率与税率
+        self.adjust_rates(player)
+        
+        return wait_required
+        
+    def adjust_rates(self, player):
+        """每次经过起点后令利率和税率浮动"""
+        interest_delta = random.uniform(-INTEREST_RATE_FLUCTUATION, INTEREST_RATE_FLUCTUATION)
+        tax_delta = random.uniform(-TAX_RATE_FLUCTUATION, TAX_RATE_FLUCTUATION)
+        
+        player.interest_rate = self._clamp(
+            player.interest_rate + interest_delta,
+            INTEREST_RATE_MIN,
+            INTEREST_RATE_MAX
+        )
+        player.tax_rate = self._clamp(
+            player.tax_rate + tax_delta,
+            TAX_RATE_MIN,
+            TAX_RATE_MAX
+        )
+        
+        self.add_message(
+            f"-> 新利率 {self._format_percentage(player.interest_rate)}，新土地税率 {self._format_percentage(player.tax_rate)}"
+        )
         
     def roll_dice(self):
         """投掷骰子"""
@@ -50,15 +127,24 @@ class GameManager:
         # 移动玩家
         passed_start = player.move(dice, TOTAL_TILES)
         
-        # 经过起点奖励
+        # 经过起点结算
         if passed_start:
-            player.add_cash(START_BONUS)
-            self.add_message(f"-> 经过起点 +${START_BONUS}")
-            
+            wait_required = self.apply_start_effects(player)
+            if wait_required:
+                return dice
+        
         return dice
         
     def process_tile_event(self):
         """处理地块事件"""
+        if self.cached_process_result is not None:
+            result = self.cached_process_result
+            self.cached_process_result = None
+            return result
+        
+        if self.waiting_for_sell_decision:
+            return "wait"
+        
         player = self.get_current_player()
         tile = self.board.get_tile(player.position)
         
@@ -103,44 +189,21 @@ class GameManager:
                 
         elif prop.owner != player:
             # 对方地产，支付租金
-            return self._pay_rent(player, prop)
+            rent = prop.rent
+            owner = prop.owner
+            if not player.can_afford(rent):
+                result = self.enter_sell_mode(player, rent, owner, payment_type="rent", followup="end_turn")
+                return result if result else "wait"
+            else:
+                player.deduct_cash(rent)
+                owner.add_cash(rent)
+                self.add_message(f"{player.name} 支付 ${rent} 租金给 {owner.name}")
+                return "end_turn"
             
         else:
             self.add_message(f"{player.name} 到达自己的地产 {prop.name}")
             return "end_turn"
             
-    def _pay_rent(self, player, prop):
-        """支付租金"""
-        rent = prop.rent
-        owner = prop.owner
-        
-        if player.can_afford(rent):
-            player.deduct_cash(rent)
-            owner.add_cash(rent)
-            self.add_message(f"{player.name} 支付 ${rent} 租金给 {owner.name}")
-        else:
-            # 现金不足，卖地
-            self.add_message(f"{player.name} 现金不足！")
-            
-            if player.properties:
-                # 选择一块地产卖给对方
-                if player.is_ai:
-                    property_to_sell = AIPlayer.choose_property_to_sell(player)
-                else:
-                    property_to_sell = random.choice(player.properties)
-                    
-                property_to_sell.transfer_ownership(owner, player)
-                self.add_message(f"-> 将 {property_to_sell.name} 转让给 {owner.name}")
-                
-                # 支付剩余租金
-                owner.add_cash(player.cash)
-                player.cash = 0
-            else:
-                # 无地产可卖，现金也不足
-                self.add_message("-> 无资产可变卖！")
-                
-        return "end_turn"
-        
     def _handle_chance(self, player):
         """处理机会事件"""
         event_type = random.randint(0, 2)
@@ -157,10 +220,11 @@ class GameManager:
             self.add_message(f"{player.name} 支付罚款 ${penalty}")
         else:
             # 位置移动
-            move_steps = random.randint(-3, 3)
+            move_steps = random.choice([i for i in range(-6, 7) if i != 0])
             if move_steps != 0:
                 player.move(move_steps, TOTAL_TILES)
                 self.add_message(f"{player.name} 移动 {move_steps} 格")
+                self.process_tile_event()
                 
         return "end_turn"
         
@@ -219,4 +283,106 @@ class GameManager:
         self.current_player_index = (self.current_player_index + 1) % 2
         player = self.get_current_player()
         self.add_message(f"轮到 {player.name} 行动")
+
+    def enter_sell_mode(self, player, amount, owner, payment_type="rent", followup="end_turn"):
+        """进入出售地产模式"""
+        self.pending_payment_amount = amount
+        self.pending_payment_receiver = owner
+        self.pending_payment_type = payment_type
+        self.pending_followup_action = followup
+        self.post_payment_action = None
+        self.properties_to_sell = list(player.properties)
+        
+        if player.is_ai:
+            result = self._auto_sell_properties(player)
+            if result == "paid":
+                return self.handle_post_payment()
+            return "end_turn"
+        else:
+            self.waiting_for_sell_decision = True
+            label = "租金" if payment_type == "rent" else "土地税"
+            self.add_message(f"现金不足！请选择一块地产出售以支付 ${amount} {label}")
+            return "wait"
+    
+    def _perform_property_sale(self, player, prop):
+        price = prop.price
+        player.add_cash(price)
+        prop.make_unowned()
+        self.add_message(f"{player.name} 出售了 {prop.name}，获得 ${price}")
+    
+    def sell_property(self, player, tile_index):
+        """出售指定的地产"""
+        prop = self.board.get_tile(tile_index).property
+        if prop and prop.owner == player:
+            self._perform_property_sale(player, prop)
+            if not player.is_ai:
+                self.properties_to_sell = list(player.properties)
+            return self.resolve_pending_payment()
+        return None
+    
+    def _auto_sell_properties(self, player):
+        while not player.can_afford(self.pending_payment_amount) and player.properties:
+            prop_to_sell = AIPlayer.choose_property_to_sell(player)
+            if not prop_to_sell:
+                break
+            self._perform_property_sale(player, prop_to_sell)
+        return self.resolve_pending_payment()
+    
+    def resolve_pending_payment(self):
+        """处理待支付的款项"""
+        player = self.get_current_player()
+        amount = self.pending_payment_amount
+        receiver = self.pending_payment_receiver
+        payment_type = self.pending_payment_type or "rent"
+        
+        if player.can_afford(amount):
+            player.deduct_cash(amount)
+            if receiver:
+                receiver.add_cash(amount)
+                if payment_type == "rent":
+                    self.add_message(f"{player.name} 成功支付 ${amount} 租金给 {receiver.name}")
+                else:
+                    self.add_message(f"{player.name} 支付了 ${amount} 给 {receiver.name}")
+            else:
+                label = "土地税" if payment_type == "tax" else "费用"
+                self.add_message(f"{player.name} 成功支付 ${amount} {label}")
+            
+            self.waiting_for_sell_decision = False
+            self.properties_to_sell = []
+            self.post_payment_action = self.pending_followup_action or "end_turn"
+            self.pending_payment_amount = 0
+            self.pending_payment_receiver = None
+            self.pending_payment_type = None
+            self.pending_followup_action = None
+            return "paid"
+        
+        if not player.properties:
+            label = "租金" if payment_type == "rent" else "土地税"
+            self.add_message(f"{player.name} 已没有地产可卖，仍然无法支付{label}！")
+            self.waiting_for_sell_decision = False
+            self.properties_to_sell = []
+            self.pending_payment_amount = 0
+            self.pending_payment_receiver = None
+            self.pending_payment_type = None
+            self.pending_followup_action = None
+            self.game_over = True
+            self.winner = self.ai_player if player == self.human_player else self.human_player
+            self.add_message("游戏结束！" + (self.winner.name if self.winner else "对手") + " 获胜！")
+            return "bankrupt"
+        
+        # 仍需继续出售
+        if player.is_ai:
+            return self._auto_sell_properties(player)
+        return "need_more"
+    
+    def handle_post_payment(self):
+        """根据付款后续动作继续流程"""
+        action = self.post_payment_action or "end_turn"
+        self.post_payment_action = None
+        if action == "continue_tile":
+            result = self.process_tile_event()
+        else:
+            result = action
+        self.cached_process_result = result
+        return result
 
