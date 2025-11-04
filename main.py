@@ -26,6 +26,8 @@ class MonopolyGame:
         self.buy_button = pygame.Rect(INFO_PANEL_X, 510, BUTTON_WIDTH, BUTTON_HEIGHT)
         self.skip_button = pygame.Rect(INFO_PANEL_X, 570, BUTTON_WIDTH, BUTTON_HEIGHT)
         self.end_turn_button = pygame.Rect(INFO_PANEL_X, 630, BUTTON_WIDTH, BUTTON_HEIGHT)
+        self.upgrade_button = pygame.Rect(INFO_PANEL_X, 690, BUTTON_WIDTH, BUTTON_HEIGHT)
+        self.upgrade_skip_button = pygame.Rect(INFO_PANEL_X, 750, BUTTON_WIDTH, BUTTON_HEIGHT)
         self.sell_buttons = []
         
         self.action_taken = False
@@ -83,6 +85,17 @@ class MonopolyGame:
         # 只有玩家回合才能点击
         if current_player.is_ai:
             return
+        
+        # 升级按钮
+        if self.game_manager.waiting_for_upgrade_decision:
+            if self.upgrade_button.collidepoint(pos):
+                self.game_manager.player_upgrade_decision(True)
+                self.action_taken = True
+                return
+            elif self.upgrade_skip_button.collidepoint(pos):
+                self.game_manager.player_upgrade_decision(False)
+                self.action_taken = True
+                return
             
         # 出售地产按钮
         if self.game_manager.waiting_for_sell_decision:
@@ -144,11 +157,13 @@ class MonopolyGame:
             self.renderer.draw_player(pos, player.color, player.is_ai)
             
         # 绘制信息面板
-        self.renderer.draw_info_panel(self.game_manager.human_player, INFO_PANEL_X, 50)
-        self.renderer.draw_info_panel(self.game_manager.ai_player, INFO_PANEL_X, 250)
+        self.renderer.draw_info_panel(self.game_manager.human_player, INFO_PANEL_X, 50, self.game_manager.cpi)
+        self.renderer.draw_info_panel(self.game_manager.ai_player, INFO_PANEL_X, 250, self.game_manager.cpi)
         
         # 绘制消息
-        self.renderer.draw_messages(self.game_manager.messages, 700, 50)
+        current_player = self.game_manager.get_current_player()
+        is_player_turn = not current_player.is_ai
+        self.renderer.draw_messages(self.game_manager.messages, 700, 50, is_player_turn)
         
         # 绘制按钮
         current_player = self.game_manager.get_current_player()
@@ -166,6 +181,14 @@ class MonopolyGame:
         else:
             self.renderer.draw_button(self.buy_button, "购买", False)
             self.renderer.draw_button(self.skip_button, "跳过", False)
+        
+        # 升级按钮
+        if self.game_manager.waiting_for_upgrade_decision:
+            self.renderer.draw_button(self.upgrade_button, "升级", True)
+            self.renderer.draw_button(self.upgrade_skip_button, "跳过", True)
+        else:
+            self.renderer.draw_button(self.upgrade_button, "升级", False)
+            self.renderer.draw_button(self.upgrade_skip_button, "跳过", False)
             
         self.renderer.draw_button(
             self.end_turn_button, 

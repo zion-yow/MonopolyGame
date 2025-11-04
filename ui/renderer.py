@@ -37,6 +37,12 @@ class Renderer:
         text_rect = text.get_rect(center=(x, y))
         self.screen.blit(text, text_rect)
         
+        # 如果有地产，绘制等级信息
+        if tile.property and tile.property.owner:
+            level_text = self.small_font.render(f"Lv{tile.property.level}", True, (100, 100, 100))
+            level_rect = level_text.get_rect(center=(x, y + 8))
+            self.screen.blit(level_text, level_rect)
+        
     def draw_player(self, position, color, is_ai=False):
         """绘制玩家"""
         x, y = position
@@ -50,12 +56,21 @@ class Renderer:
         text_surface = font.render(text, True, color)
         self.screen.blit(text_surface, position)
         
-    def draw_messages(self, messages, x, y):
+    def draw_messages(self, messages, x, y, is_player_turn=True):
         """绘制消息列表"""
         for i, message in enumerate(messages):
             # 最近的消息颜色更深
-            color_value = max(0, 200 - i * 20)
-            color = (color_value, color_value, color_value)
+            if is_player_turn:
+                # 玩家回合：蓝色系
+                base_color_value = 100  # 蓝色
+                color_value = base_color_value + (len(messages) - 1 - i) * 10
+                color = (max(0, color_value - 50), max(0, color_value - 50), min(255, color_value + 55))
+            else:
+                # AI回合：红色系
+                base_color_value = 100  # 红色
+                color_value = base_color_value + (len(messages) - 1 - i) * 10
+                color = (min(255, color_value + 55), max(0, color_value - 50), max(0, color_value - 50))
+            
             self.draw_text(message, (x, y + i * 22), color, self.small_font)
         
     def draw_button(self, rect, text, active=True):
@@ -73,11 +88,11 @@ class Renderer:
         buttons = []
         for i, prop in enumerate(properties):
             rect = pygame.Rect(x, y + i * 45, BUTTON_WIDTH + 50, BUTTON_HEIGHT)
-            self.draw_button(rect, f"出售 {prop.name} (${prop.price})")
+            self.draw_button(rect, f"出售 {prop.name} (${prop.property_price})")
             buttons.append((rect, prop.tile_index))
         return buttons
 
-    def draw_info_panel(self, player, x, y):
+    def draw_info_panel(self, player, x, y, cpi=0):
         """绘制信息面板"""
         texts = [
             f"{player.name}",
@@ -85,9 +100,25 @@ class Renderer:
             f"资产数: {len(player.properties)}",
             f"总财富: ${player.get_total_wealth()}",
             f"利率: {player.interest_rate * 100:.2f}%",
-            f"土地税率: {player.tax_rate * 100:.2f}%"
+            f"土地税率: {player.tax_rate * 100:.2f}%",
+            f"物价指数: {cpi * 100:.2f}%"
         ]
         
         for i, text in enumerate(texts):
-            self.draw_text(text, (x, y + i * 30))
+            self.draw_text(text, (x, y + i * 25))
+    
+    def draw_property_tooltip(self, prop, cpi, x, y):
+        """绘制地产信息提示"""
+        if prop:
+            prop.update_property_price(cpi)
+            texts = [
+                f"{prop.name}",
+                f"等级: {prop.level}/{5}",
+                f"地产价格: ${prop.property_price}",
+                f"租金: ${int(prop.property_price * prop.rent_rate)}",
+                f"升级成本: ${prop.get_upgrade_cost(cpi) if prop.can_upgrade() else 0}",
+                f"维护成本: ${prop.get_maintenance_cost(cpi)}"
+            ]
+            for i, text in enumerate(texts):
+                self.draw_text(text, (x, y + i * 20), (100, 100, 100), self.small_font)
 

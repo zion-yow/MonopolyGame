@@ -21,7 +21,7 @@ class Player:
         """计算总财富"""
         wealth = self.cash
         for prop in self.properties:
-            wealth += prop.price
+            wealth += prop.property_price
         return wealth
         
     def add_cash(self, amount):

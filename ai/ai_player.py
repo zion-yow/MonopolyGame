@@ -13,11 +13,11 @@ class AIPlayer:
         决定是否购买地产
         策略：如果现金充足且价格合理，有70%概率购买
         """
-        if not player.can_afford(property_obj.price):
+        if not player.can_afford(property_obj.base_price):
             return False
             
         # 保留一定现金，不全部花光
-        if player.cash - property_obj.price < 500:
+        if player.cash - property_obj.base_price < 500:
             return False
             
         # 70%概率购买
@@ -31,5 +31,5 @@ class AIPlayer:
         """
         if not player.properties:
             return None
-        return min(player.properties, key=lambda prop: prop.price)
+        return min(player.properties, key=lambda prop: prop.property_price)
 

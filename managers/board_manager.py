@@ -44,7 +44,7 @@ class BoardManager:
                 property_obj = Property(
                     f"地产{i}",
                     base_price,
-                    base_price // 5,
+                    0.1,  # 初始租金率10%
                     i
                 )
                 tile.property = property_obj

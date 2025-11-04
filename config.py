@@ -9,7 +9,7 @@ FPS = 60
 # 游戏设置
 START_CASH = 50000          # 初始现金
 START_BONUS = 0             # 经过起点奖励（已废弃，保留字段以兼容旧逻辑）
-TOTAL_TILES = 36           # 地块总数
+TOTAL_TILES = 24           # 地块总数
 
 # 利息与税率设置
 INITIAL_INTEREST_RATE = 0.05
@@ -20,6 +20,20 @@ INTEREST_RATE_MAX = 0.15
 TAX_RATE_FLUCTUATION = 0.005
 TAX_RATE_MIN = 0.0
 TAX_RATE_MAX = 0.08
+
+# 地产等级与升级设置
+PROPERTY_MAX_LEVEL = 5
+PROPERTY_LEVEL_MULTIPLIER = 0.1        # 每级提升10%价格
+PROPERTY_UPGRADE_RATE = 0.2             # 升级成本 = 升级成本率 * 当前地价 * (1 + cpi)
+PROPERTY_MAINTENANCE_RATE = 0.05        # 维护成本 = 维护成本率 * 当前地价 * (1 + cpi)
+PROPERTY_INITIAL_RENT_RATE = 0.1        # 初始租金率
+
+# 物价指数（CPI）设置
+INITIAL_CPI = 0.0
+CPI_MIN = -0.3
+CPI_MAX = 0.5
+CPI_CHANGE_PER_TOTAL_WEALTH = 0.00001   # 每100万财富对CPI的影响
+CHANCE_CPI_FLUCTUATION = (-0.05, 0.05)  # 机会事件对CPI的影响范围
 
 # 颜色定义 (R, G, B)
 WHITE = (255, 255, 255)

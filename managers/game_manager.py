@@ -21,12 +21,18 @@ class GameManager:
         # 初始化地图
         self.board = BoardManager(TOTAL_TILES)
         
+        # CPI 管理
+        self.cpi = INITIAL_CPI
+        self.last_total_wealth = START_CASH*2
+        
         # 游戏状态
         self.game_over = False
         self.winner = None
         self.messages = ["点击'投掷骰子'开始游戏"]
         self.waiting_for_buy_decision = False
         self.waiting_for_sell_decision = False
+        self.waiting_for_upgrade_decision = False
+        self.upgrade_property = None
         self.properties_to_sell = []
         self.pending_payment_amount = 0
         self.pending_payment_receiver = None
@@ -52,6 +58,48 @@ class GameManager:
     def _format_percentage(self, value):
         return f"{value * 100:.2f}%"
         
+    def get_total_game_wealth(self):
+        """计算游戏总财富"""
+        total = sum(player.cash for player in self.players)
+        total += sum(
+            prop.property_price 
+            for tile in self.board.tiles 
+            for prop in ([tile.property] if tile.property else [])
+        )
+        return total
+    
+    def update_cpi(self):
+        """根据总财富变化更新CPI"""
+        current_wealth = self.get_total_game_wealth()
+        wealth_delta = current_wealth - self.last_total_wealth
+        self.last_total_wealth = current_wealth
+        
+        # 每百万财富变化影响CPI
+        wealth_change_impact = (wealth_delta / 1000000) * CPI_CHANGE_PER_TOTAL_WEALTH
+        new_cpi = self._clamp(
+            self.cpi + wealth_change_impact,
+            CPI_MIN,
+            CPI_MAX
+        )
+        
+        if abs(new_cpi - self.cpi) > 0.001:  # 只在变化显著时更新
+            old_cpi = self.cpi
+            self.cpi = new_cpi
+            self.add_message(f"物价指数更新: {self._format_percentage(old_cpi)} → {self._format_percentage(self.cpi)}")
+            return True
+        return False
+    
+    def apply_cpi_fluctuation(self, delta):
+        """外部触发CPI浮动（如CHANCE事件）"""
+        new_cpi = self._clamp(
+            self.cpi + delta,
+            CPI_MIN,
+            CPI_MAX
+        )
+        if abs(new_cpi - self.cpi) > 0.001:
+            self.cpi = new_cpi
+            self.add_message(f"-> 物价指数浮动: {self._format_percentage(self.cpi)}")
+
     def apply_start_effects(self, player):
         """结算经过起点时的利息与土地税"""
         self.add_message(f"{player.name} 经过起点，结算利息与土地税")
@@ -70,7 +118,7 @@ class GameManager:
             )
         
         # 征收土地税
-        total_property_value = sum(prop.price for prop in player.properties)
+        total_property_value = sum(prop.property_price for prop in player.properties)
         tax_due = int(total_property_value * player.tax_rate)
         if tax_due > 0:
             if player.can_afford(tax_due):
@@ -173,7 +221,7 @@ class GameManager:
                 # AI自动决策
                 if AIPlayer.decide_buy_property(player, prop):
                     self.buy_property(player, prop)
-                    self.add_message(f"{player.name} 购买了 {prop.name} (${prop.price})")
+                    self.add_message(f"{player.name} 购买了 {prop.name} (${prop.base_price})")
                 else:
                     self.add_message(f"{player.name} 放弃购买 {prop.name}")
                 return "end_turn"
@@ -181,15 +229,15 @@ class GameManager:
                 # 玩家需要决策
                 self.waiting_for_buy_decision = True
                 self.current_property = prop
-                if player.can_afford(prop.price):
-                    self.add_message(f"是否购买 {prop.name}? 价格: ${prop.price}")
+                if player.can_afford(prop.base_price):
+                    self.add_message(f"是否购买 {prop.name}? 价格: ${prop.base_price}")
                 else:
-                    self.add_message(f"{prop.name} 无主，但现金不足 (${prop.price})")
+                    self.add_message(f"{prop.name} 无主，但现金不足 (${prop.base_price})")
                 return "wait"
                 
         elif prop.owner != player:
             # 对方地产，支付租金
-            rent = prop.rent
+            rent = prop.get_rent(self.cpi)
             owner = prop.owner
             if not player.can_afford(rent):
                 result = self.enter_sell_mode(player, rent, owner, payment_type="rent", followup="end_turn")
@@ -197,16 +245,49 @@ class GameManager:
             else:
                 player.deduct_cash(rent)
                 owner.add_cash(rent)
-                self.add_message(f"{player.name} 支付 ${rent} 租金给 {owner.name}")
+                self.add_message(f"{player.name} 支付 ${rent} 租金给 {owner.name}（地产等级{prop.level}）")
                 return "end_turn"
             
         else:
-            self.add_message(f"{player.name} 到达自己的地产 {prop.name}")
+            self.add_message(f"{player.name} 到达自己的地产 {prop.name}（等级{prop.level}）")
+            
+            # 提示升级选项
+            if prop.can_upgrade():
+                upgrade_cost = prop.get_upgrade_cost(self.cpi)
+                if player.can_afford(upgrade_cost):
+                    self.add_message(
+                        f"-> 可升级！升级成本 ${upgrade_cost}（新等级{prop.level + 1}/{PROPERTY_MAX_LEVEL}）"
+                    )
+                    
+                    if player.is_ai:
+                        # AI自动升级
+                        if random.random() > 0.3:  # AI 70%概率升级
+                            prop.upgrade()
+                            player.deduct_cash(upgrade_cost)
+                            self.add_message(f"-> {player.name} 升级了 {prop.name}！")
+                    else:
+                        # 玩家手动选择
+                        self.waiting_for_upgrade_decision = True
+                        self.upgrade_property = prop
+                        self.add_message(f"-> 是否升级？点击升级或跳过按钮")
+                        return "wait"
+                else:
+                    self.add_message(f"-> 想升级但现金不足（需要 ${upgrade_cost}）")
+            
+            # 支付维护成本
+            maintenance = prop.get_maintenance_cost(self.cpi)
+            if maintenance > 0:
+                if player.can_afford(maintenance):
+                    player.deduct_cash(maintenance)
+                    self.add_message(f"-> 支付维护成本 ${maintenance}")
+                else:
+                    self.add_message(f"-> 无法支付维护成本 ${maintenance}！")
+            
             return "end_turn"
             
     def _handle_chance(self, player):
         """处理机会事件"""
-        event_type = random.randint(0, 2)
+        event_type = random.randint(0, 3)  # 增加到4种事件类型以包含CPI事件
         
         if event_type == 0:
             # 获得奖金
@@ -218,13 +299,19 @@ class GameManager:
             penalty = random.randint(100, 300)
             player.deduct_cash(penalty)
             self.add_message(f"{player.name} 支付罚款 ${penalty}")
-        else:
+        elif event_type == 2:
             # 位置移动
             move_steps = random.choice([i for i in range(-6, 7) if i != 0])
             if move_steps != 0:
                 player.move(move_steps, TOTAL_TILES)
                 self.add_message(f"{player.name} 移动 {move_steps} 格")
                 self.process_tile_event()
+        else:
+            # 物价指数浮动
+            delta = random.uniform(CHANCE_CPI_FLUCTUATION[0], CHANCE_CPI_FLUCTUATION[1])
+            direction = "上升" if delta > 0 else "下降"
+            self.add_message(f"{player.name} 触发突发事件：物价指数{direction}！")
+            self.apply_cpi_fluctuation(delta)
                 
         return "end_turn"
         
@@ -237,8 +324,8 @@ class GameManager:
         
     def buy_property(self, player, prop):
         """购买地产"""
-        if player.can_afford(prop.price):
-            player.deduct_cash(prop.price)
+        if player.can_afford(prop.base_price):
+            player.deduct_cash(prop.base_price)
             prop.transfer_ownership(player)
             return True
         return False
@@ -258,7 +345,29 @@ class GameManager:
             
         self.waiting_for_buy_decision = False
         self.current_property = None
+    
+    def player_upgrade_decision(self, upgrade):
+        """玩家升级决策"""
+        if not self.waiting_for_upgrade_decision:
+            return
         
+        player = self.human_player
+        prop = self.upgrade_property
+        
+        if upgrade:
+            upgrade_cost = prop.get_upgrade_cost(self.cpi)
+            if player.can_afford(upgrade_cost):
+                prop.upgrade()
+                player.deduct_cash(upgrade_cost)
+                self.add_message(f"升级成功！{prop.name} 现在是 Lv{prop.level}")
+            else:
+                self.add_message(f"现金不足！")
+        else:
+            self.add_message(f"放弃升级 {prop.name}")
+        
+        self.waiting_for_upgrade_decision = False
+        self.upgrade_property = None
+
     def check_game_over(self):
         """检查游戏是否结束"""
         if self.human_player.get_total_wealth() <= 0:
@@ -283,6 +392,9 @@ class GameManager:
         self.current_player_index = (self.current_player_index + 1) % 2
         player = self.get_current_player()
         self.add_message(f"轮到 {player.name} 行动")
+        
+        # 更新CPI
+        self.update_cpi()
 
     def enter_sell_mode(self, player, amount, owner, payment_type="rent", followup="end_turn"):
         """进入出售地产模式"""
@@ -305,10 +417,10 @@ class GameManager:
             return "wait"
     
     def _perform_property_sale(self, player, prop):
-        price = prop.price
-        player.add_cash(price)
+        price = prop.property_price 
+        player.add_cash(prop.property_price)
         prop.make_unowned()
-        self.add_message(f"{player.name} 出售了 {prop.name}，获得 ${price}")
+        self.add_message(f"{player.name} 出售了 {prop.name}，获得 ${property_price}")
     
     def sell_property(self, player, tile_index):
         """出售指定的地产"""
